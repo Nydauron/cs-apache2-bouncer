@@ -375,16 +375,22 @@ static int crowdsec_proxy(request_rec * r, const char **response)
                                      NULL);
 
     ap_log_rerror(APLOG_MARK, APLOG_DEBUG, APR_SUCCESS, r,
-                  "crowdsec: looking up IP '%s' at url: %s",
-                  r->useragent_ip, target);
+                  "crowdsec: looking up IP '%s' at url: %s", r->useragent_ip,
+                  target);
+
+    ap_log_rerror(APLOG_MARK, APLOG_DEBUG, APR_SUCCESS, r,
+                  "crowdsec: request r status '%d'", r->status);
 
     /* create a proxy request */
     rr = ap_sub_req_method_uri("GET", r->uri, r, NULL);
 
-    if (rr->status != HTTP_OK) {
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, APR_SUCCESS, r,
-                      "crowdsec: service '%s' returned %d, request rejected: %s",
-                      target, rr->status, r->uri);
+    if (rr->status >= HTTP_BAD_REQUEST) {
+        // the random 301s without any location header are flowing thru here
+        // TODO: what the fuck is ap_sub_req_method_uri even doing???
+        ap_log_rerror(
+            APLOG_MARK, APLOG_ERR, APR_SUCCESS, r,
+            "crowdsec: service '%s' returned %d, request rejected: %s", target,
+            rr->status, r->uri);
         return rr->status;
     }
 
