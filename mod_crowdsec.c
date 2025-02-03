@@ -375,16 +375,26 @@ static int crowdsec_proxy(request_rec * r, const char **response)
                                      NULL);
 
     ap_log_rerror(APLOG_MARK, APLOG_DEBUG, APR_SUCCESS, r,
-                  "crowdsec: looking up IP '%s' at url: %s",
-                  r->useragent_ip, target);
+                  "crowdsec: looking up IP '%s' at url: %s", r->useragent_ip,
+                  target);
+
+    ap_log_rerror(APLOG_MARK, APLOG_DEBUG, APR_SUCCESS, r,
+                  "crowdsec: request r status '%d'", r->status);
 
     /* create a proxy request */
     rr = ap_sub_req_method_uri("GET", r->uri, r, NULL);
 
     if (rr->status != HTTP_OK) {
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, APR_SUCCESS, r,
-                      "crowdsec: service '%s' returned %d, request rejected: %s",
-                      target, rr->status, r->uri);
+        ap_log_rerror(
+            APLOG_MARK, APLOG_ERR, APR_SUCCESS, r,
+            "crowdsec: service '%s' returned %d, request rejected: %s", target,
+            rr->status, r->uri);
+
+        ap_log_rerror(APLOG_MARK, APLOG_DEBUG, APR_SUCCESS, r,
+                      "crowdsec: redirect location '%s'",
+                      apr_table_get(rr->headers_out, "Location"));
+
+        *response = apr_table_get(rr->headers_out, "Location");
         return rr->status;
     }
 
@@ -517,6 +527,9 @@ static int crowdsec_query(request_rec * r)
         status = crowdsec_proxy(r, &response);
 
         if ((status) != OK) {
+            if (ap_is_HTTP_REDIRECT(status)) {
+                *redirect_location = response;
+            }
             return status;
         }
 
@@ -580,8 +593,16 @@ static int crowdsec_check_access(request_rec * r)
         return DECLINED;
     }
 
-    if ((status = crowdsec_query(r)) == OK) {
+    char *redirect_location = NULL;
+    status = crowdsec_query(r, &redirect_location);
+
+    if (status == OK) {
         return DECLINED;
+    }
+    if (ap_is_HTTP_REDIRECT(status)) {
+        if (redirect_location) {
+            apr_table_setn(r->headers_out, "Location", redirect_location);
+        }
     }
 
     return status;
